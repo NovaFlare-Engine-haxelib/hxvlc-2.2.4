@@ -423,12 +423,6 @@ class Video extends openfl.display.Bitmap
 	private var mediaPlayer:Null<Pointer<LibVLC_Media_Player_T>>;
 
 	@:noCompletion
-	private var _cachedTime:Int64 = -1;
-
-	@:noCompletion
-	private var _cachedTimestamp:Int = 0;
-
-	@:noCompletion
 	private var textureWidth:UInt32 = 0;
 
 	@:noCompletion
@@ -998,46 +992,14 @@ class Video extends openfl.display.Bitmap
 	@:noCompletion
 	private function get_time():Int64
 	{
-		if (mediaPlayer != null)
-		{
-			var time:Int64 = LibVLC.media_player_get_time(mediaPlayer.raw);
-
-			if (time != -1)
-			{
-				var currentTimestamp:Int = Lib.getTimer();
-
-				if (time != _cachedTime)
-				{
-					_cachedTime = time;
-					_cachedTimestamp = currentTimestamp;
-				}
-				else if (isPlaying)
-				{
-					var elapsed:Int = currentTimestamp - _cachedTimestamp;
-
-					if (elapsed > 0)
-					{
-						time += Math.round(elapsed * rate);
-					}
-				}
-			}
-
-			return time;
-		}
-
-		return -1;
+		return mediaPlayer != null ? LibVLC.media_player_get_time(mediaPlayer.raw) : -1;
 	}
 
 	@:noCompletion
 	private function set_time(value:Int64):Int64
 	{
 		if (mediaPlayer != null)
-		{
 			LibVLC.media_player_set_time(mediaPlayer.raw, value);
-
-			_cachedTime = value;
-			_cachedTimestamp = Lib.getTimer();
-		}
 
 		return value;
 	}

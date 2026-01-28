@@ -28,6 +28,7 @@ import lime.app.Event;
 import lime.utils.UInt8Array;
 import openfl.Lib;
 import sys.thread.Mutex;
+import Sys;
 
 using cpp.NativeArray;
 
@@ -182,6 +183,12 @@ class Audio extends openfl.events.EventDispatcher
 	/** The number of buffers used for the buffer pool. */
 	@:noCompletion
 	private static final MAX_AUDIO_BUFFER_COUNT:Int = DefineMacro.getInt('HXVLC_MAX_AUDIO_BUFFER_COUNT', 255);
+
+	/** Synchronization start time in milliseconds. If -1, synchronization is disabled. */
+	public var syncStartTime:Float = -1;
+
+	@:noCompletion
+	private var _syncStartPts:Int64 = -1;
 	#end
 
 	/**
@@ -567,6 +574,10 @@ class Audio extends openfl.events.EventDispatcher
 	/** Stops playback. */
 	public function stop():Void
 	{
+		#if lime_openal
+		_syncStartPts = -1;
+		#end
+
 		if (mediaPlayer != null)
 			LibVLC.media_player_stop(mediaPlayer.raw);
 	}
@@ -685,6 +696,10 @@ class Audio extends openfl.events.EventDispatcher
 	/** Frees the memory that is used to store the Audio object. */
 	public function dispose():Void
 	{
+		#if lime_openal
+		_syncStartPts = -1;
+		#end
+
 		if (mediaPlayer != null)
 		{
 			LibVLC.media_player_release(mediaPlayer.raw);
@@ -1064,6 +1079,18 @@ class Audio extends openfl.events.EventDispatcher
 		#if lime_openal
 		if (alSource != null && alBufferPool != null)
 		{
+			if (syncStartTime != -1)
+			{
+				if (_syncStartPts == -1)
+					_syncStartPts = pts;
+
+				final targetTime:Float = syncStartTime + (cast(pts - _syncStartPts, Float) / 1000.0);
+				final currentTime:Float = Lib.getTimer();
+
+				if (targetTime > currentTime + 5)
+					Sys.sleep((targetTime - currentTime) / 1000.0);
+			}
+
 			alMutex.acquire();
 
 			for (alBuffer in AL.sourceUnqueueBuffers(alSource, AL.getSourcei(alSource, AL.BUFFERS_PROCESSED)))
