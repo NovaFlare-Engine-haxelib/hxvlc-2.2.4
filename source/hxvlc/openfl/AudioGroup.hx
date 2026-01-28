@@ -84,6 +84,8 @@ class AudioGroup
 	 */
 	public var isPlaying(get, never):Bool;
 
+	public var autoDestroy:Bool = false;
+
 	@:noCompletion
 	private var _firstMember:Null<Audio> = null;
 
@@ -124,26 +126,37 @@ class AudioGroup
 	}
 
 	/**
-	 * Adds a new Audio instance to the group by loading it from the specified location.
+	 * Adds a new Audio instance to the group or reloads an existing one.
 	 * 
+	 * @param id The ID (1-based index) of the track. If the group has fewer members than this ID, a new track is added. Otherwise, the existing track at (ID - 1) is reloaded.
 	 * @param location The path or URL of the audio file.
 	 * @param options Additional options for loading.
-	 * @return The created Audio instance, or `null` if loading failed.
+	 * @return `true` if loading/reloading succeeded, `false` otherwise.
 	 */
-	public function addTrack(location:String, ?options:Array<String>):Bool
+	public function addTrack(location:String, ?options:Array<String>, id:Int = 9999):Bool
 	{
-		final audio:Audio = new Audio();
+		if (id <= 0)
+			return false;
 
-		if (audio.load(location, options))
+		if (members.length < id)
 		{
-			add(audio);
+			final audio:Audio = new Audio();
 
-			return true;
+			if (audio.load(location, options))
+			{
+				add(audio);
+
+				return true;
+			}
+
+			audio.dispose();
+
+			return false;
 		}
-
-		audio.dispose();
-
-		return false;
+		else
+		{
+			return members[id - 1].load(location, options);
+		}
 	}
 
 	/**
@@ -189,12 +202,14 @@ class AudioGroup
 		{
 			audio.syncStartTime = -1;
 			audio.stop();
-			audio.dispose();
+			if (autoDestroy) audio.dispose();
 		}
 
-		members = [];
+		if (autoDestroy) {
+			members = [];
 
-		updateFirstMemberListeners();
+			updateFirstMemberListeners();
+		}
 	}
 
 	/**
