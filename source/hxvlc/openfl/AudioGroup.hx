@@ -66,11 +66,11 @@ class AudioGroup
 	public var position(get, set):Single;
 
 	/**
-	 * Volume level (0 to 100).
+	 * Volume level (0.0 to 1.0).
 	 * Getting returns the volume of the first member.
 	 * Setting updates all members.
 	 */
-	public var volume(get, set):Int;
+	public var volume(get, set):Single;
 
 	/**
 	 * Playback rate of the media.
@@ -279,13 +279,13 @@ class AudioGroup
 	}
 
 	@:noCompletion
-	private function get_volume():Int
+	private function get_volume():Single
 	{
 		return members.length > 0 ? members[0].volume : -1;
 	}
 
 	@:noCompletion
-	private function set_volume(value:Int):Int
+	private function set_volume(value:Single):Single
 	{
 		for (audio in members)
 			audio.volume = value;
