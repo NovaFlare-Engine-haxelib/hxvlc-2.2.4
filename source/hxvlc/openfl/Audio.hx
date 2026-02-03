@@ -26,7 +26,7 @@ import hxvlc.util.Util;
 import hxvlc.util.macros.DefineMacro;
 import lime.app.Event;
 import lime.utils.UInt8Array;
-import openfl.Lib;
+import lime.system.System;
 import sys.thread.Mutex;
 import Sys;
 
@@ -236,6 +236,11 @@ class Audio extends openfl.events.EventDispatcher
 	/** Volume level (0.0 to 1.0). */
 	public var volume(get, set):Single;
 
+	/**
+	 * Multiplier applied to the volume when this Audio instance is part of an AudioGroup.
+	 */
+	public var groupVolume:Single = 1.0;
+
 	/** Role of the media. */
 	public var role(get, set):UInt;
 
@@ -320,7 +325,7 @@ class Audio extends openfl.events.EventDispatcher
 	private var _cachedTime:Int64 = -1;
 
 	@:noCompletion
-	private var _cachedTimestamp:Int = 0;
+	private var _cachedTimestamp:Float = 0;
 
 	#if lime_openal
 	@:noCompletion
@@ -430,6 +435,52 @@ class Audio extends openfl.events.EventDispatcher
 			trace('Unable to initialize the LibVLC media item.');
 
 		return false;
+	}
+
+	public function releaseMedia():Void
+	{
+		#if lime_openal
+		syncStartTime = -1;
+		_syncStartPts = -1;
+		#end
+
+		stop();
+
+		if (mediaPlayer != null)
+		{
+			LibVLC.media_player_release(mediaPlayer.raw);
+			mediaPlayer = null;
+		}
+
+		mediaMutex.acquire();
+
+		mediaInput = null;
+
+		mediaMutex.release();
+
+		#if lime_openal
+		alMutex.acquire();
+
+		if (alSource != null)
+		{
+			if (AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.STOPPED)
+				AL.sourceStop(alSource);
+
+			for (alBuffer in AL.sourceUnqueueBuffers(alSource, AL.getSourcei(alSource, AL.BUFFERS_QUEUED)))
+				AL.deleteBuffer(alBuffer);
+
+			AL.deleteSource(alSource);
+			alSource = null;
+		}
+
+		if (alBufferPool != null)
+		{
+			AL.deleteBuffers(alBufferPool);
+			alBufferPool = null;
+		}
+
+		alMutex.release();
+		#end
 	}
 
 	/**
@@ -697,6 +748,7 @@ class Audio extends openfl.events.EventDispatcher
 	public function dispose():Void
 	{
 		#if lime_openal
+		syncStartTime = -1;
 		_syncStartPts = -1;
 		#end
 
@@ -836,7 +888,7 @@ class Audio extends openfl.events.EventDispatcher
 
 			if (time != -1)
 			{
-				var currentTimestamp:Int = Lib.getTimer();
+				var currentTimestamp:Float = System.getTimerNano();
 
 				if (time != _cachedTime)
 				{
@@ -845,7 +897,7 @@ class Audio extends openfl.events.EventDispatcher
 				}
 				else if (isPlaying)
 				{
-					var elapsed:Int = currentTimestamp - _cachedTimestamp;
+					var elapsed:Float = currentTimestamp - _cachedTimestamp;
 
 					if (elapsed > 0)
 					{
@@ -868,7 +920,7 @@ class Audio extends openfl.events.EventDispatcher
 			LibVLC.media_player_set_time(mediaPlayer.raw, value);
 
 			_cachedTime = value;
-			_cachedTimestamp = Lib.getTimer();
+			_cachedTimestamp = System.getTimerNano();
 		}
 
 		return value;
@@ -1085,7 +1137,7 @@ class Audio extends openfl.events.EventDispatcher
 					_syncStartPts = pts;
 
 				final targetTime:Float = syncStartTime + (cast(pts - _syncStartPts, Float) / 1000.0);
-				final currentTime:Float = Lib.getTimer();
+				final currentTime:Float = System.getTimerNano();
 
 				if (targetTime > currentTime + 5)
 					Sys.sleep((targetTime - currentTime) / 1000.0);
@@ -1431,7 +1483,17 @@ class Audio extends openfl.events.EventDispatcher
 			for (option in options)
 			{
 				if (option != null && option.length > 0)
+				{
+					if (option.indexOf(':group-volume=') == 0)
+					{
+						final value:Float = Std.parseFloat(option.substring(14));
+
+						if (!Math.isNaN(value))
+							groupVolume = cast value;
+					}
+
 					LibVLC.media_add_option(mediaItem.raw, option);
+				}
 			}
 		}
 

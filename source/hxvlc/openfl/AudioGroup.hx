@@ -1,8 +1,8 @@
 package hxvlc.openfl;
 
-import openfl.Lib;
 import haxe.Int64;
 import lime.app.Event;
+import lime.system.System;
 
 /**
  * A group of Audio instances that can be played, paused, and stopped in synchronization.
@@ -67,8 +67,8 @@ class AudioGroup
 
 	/**
 	 * Volume level (0.0 to 1.0).
-	 * Getting returns the volume of the first member.
-	 * Setting updates all members.
+	 * Getting returns the master volume of the group.
+	 * Setting updates all members, multiplied by their respective `groupVolume`.
 	 */
 	public var volume(get, set):Single;
 
@@ -89,6 +89,9 @@ class AudioGroup
 	@:noCompletion
 	private var _firstMember:Null<Audio> = null;
 
+	@:noCompletion
+	private var _volume:Single = 1.0;
+
 	/**
 	 * Creates a new AudioGroup.
 	 */
@@ -106,6 +109,8 @@ class AudioGroup
 		if (audio != null && !members.contains(audio))
 		{
 			members.push(audio);
+
+			audio.volume = _volume * audio.groupVolume;
 
 			if (members.length == 1)
 				updateFirstMemberListeners();
@@ -155,8 +160,22 @@ class AudioGroup
 		}
 		else
 		{
-			return members[id - 1].load(location, options);
+			members[id - 1].releaseMedia();
+			final success:Bool = members[id - 1].load(location, options);
+
+			if (success)
+				members[id - 1].volume = _volume * members[id - 1].groupVolume;
+
+			return success;
 		}
+	}
+
+	public function releaseMedia(id:Int):Void
+	{
+		if (id <= 0 || id > members.length)
+			return;
+
+		members[id - 1].releaseMedia();
 	}
 
 	/**
@@ -166,7 +185,7 @@ class AudioGroup
 	 */
 	public function play(delay:Int = 10):Void
 	{
-		final syncTime:Float = Lib.getTimer() + delay;
+		final syncTime:Float = System.getTimerNano() + delay;
 
 		for (audio in members)
 		{
@@ -281,14 +300,16 @@ class AudioGroup
 	@:noCompletion
 	private function get_volume():Single
 	{
-		return members.length > 0 ? members[0].volume : -1;
+		return _volume;
 	}
 
 	@:noCompletion
 	private function set_volume(value:Single):Single
 	{
+		_volume = value;
+
 		for (audio in members)
-			audio.volume = value;
+			audio.volume = value * audio.groupVolume;
 
 		return value;
 	}
