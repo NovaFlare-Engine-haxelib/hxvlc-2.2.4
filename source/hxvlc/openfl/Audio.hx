@@ -25,6 +25,7 @@ import hxvlc.util.TrackDescription;
 import hxvlc.util.Util;
 import hxvlc.util.macros.DefineMacro;
 import lime.app.Event;
+import lime.app.Application;
 import lime.utils.UInt8Array;
 import lime.system.System;
 import sys.thread.Mutex;
@@ -364,6 +365,9 @@ class Audio extends openfl.events.EventDispatcher
 			Sys.sleep(0.05);
 
 		Handle.init();
+
+		if (Application.current != null)
+			Application.current.onExit.add(onExit);
 	}
 
 	/**
@@ -747,6 +751,9 @@ class Audio extends openfl.events.EventDispatcher
 	/** Frees the memory that is used to store the Audio object. */
 	public function dispose():Void
 	{
+		if (Application.current != null)
+			Application.current.onExit.remove(onExit);
+
 		#if lime_openal
 		syncStartTime = -1;
 		_syncStartPts = -1;
@@ -791,6 +798,12 @@ class Audio extends openfl.events.EventDispatcher
 
 		alMutex.release();
 		#end
+	}
+
+	@:noCompletion
+	private function onExit(code:Int):Void
+	{
+		dispose();
 	}
 
 	@:noCompletion
@@ -1145,6 +1158,12 @@ class Audio extends openfl.events.EventDispatcher
 
 			alMutex.acquire();
 
+			if (alSource == null || alBufferPool == null)
+			{
+				alMutex.release();
+				return;
+			}
+
 			for (alBuffer in AL.sourceUnqueueBuffers(alSource, AL.getSourcei(alSource, AL.BUFFERS_PROCESSED)))
 				alBufferPool.push(alBuffer);
 
@@ -1184,7 +1203,7 @@ class Audio extends openfl.events.EventDispatcher
 		{
 			alMutex.acquire();
 
-			if (AL.getSourcei(alSource, AL.SOURCE_STATE) == AL.PAUSED)
+			if (alSource != null && AL.getSourcei(alSource, AL.SOURCE_STATE) == AL.PAUSED)
 				AL.sourcePlay(alSource);
 
 			alMutex.release();
@@ -1203,7 +1222,7 @@ class Audio extends openfl.events.EventDispatcher
 		{
 			alMutex.acquire();
 
-			if (AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.PAUSED)
+			if (alSource != null && AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.PAUSED)
 				AL.sourcePause(alSource);
 
 			alMutex.release();
@@ -1222,7 +1241,7 @@ class Audio extends openfl.events.EventDispatcher
 		{
 			alMutex.acquire();
 
-			if (AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.STOPPED)
+			if (alSource != null && AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.STOPPED)
 				AL.sourceStop(alSource);
 
 			alMutex.release();

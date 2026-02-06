@@ -183,7 +183,7 @@ class AudioGroup
 	 * 
 	 * @param delay Optional delay in milliseconds before starting playback (default is 50ms for buffer padding).
 	 */
-	public function play(delay:Int = 10):Void
+	public function play(delay:Int = 50):Void
 	{
 		final syncTime:Float = System.getTimerNano() + delay;
 
