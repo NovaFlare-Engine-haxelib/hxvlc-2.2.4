@@ -29,6 +29,7 @@ import lime.app.Application;
 import lime.utils.UInt8Array;
 import lime.system.System;
 import sys.thread.Mutex;
+import sys.thread.Thread;
 import Sys;
 
 using cpp.NativeArray;
@@ -323,6 +324,15 @@ class Audio extends openfl.events.EventDispatcher
 	private var mediaPlayer:Null<Pointer<LibVLC_Media_Player_T>>;
 
 	@:noCompletion
+	private var _attachedEventTypes:Array<Int> = [];
+
+	@:noCompletion
+	private var _closing:Bool = false;
+
+	@:noCompletion
+	private var _disposed:Bool = false;
+
+	@:noCompletion
 	private var _cachedTime:Int64 = -1;
 
 	@:noCompletion
@@ -441,12 +451,64 @@ class Audio extends openfl.events.EventDispatcher
 		return false;
 	}
 
+	/**
+	 * Loads media from the specified location asynchronously.
+	 * 
+	 * @param location The location of the media file or stream.
+	 * @param options Additional options to configure the media.
+	 * @param onComplete A callback that is called after the media is loaded.
+	 * @param onError A callback that is called if an error occurs.
+	 */
+	public function loadAsync(location:hxvlc.util.Location, ?options:Array<String>, ?onComplete:Void->Void, ?onError:String->Void):Void
+	{
+		Thread.create(function():Void
+		{
+			try
+			{
+				if (load(location, options))
+				{
+					MainLoop.runInMainThread(function():Void
+					{
+						if (onComplete != null)
+							onComplete();
+					});
+				}
+				else
+				{
+					MainLoop.runInMainThread(function():Void
+					{
+						if (onError != null)
+							onError('Failed to load media.');
+					});
+				}
+			}
+			catch (e:Dynamic)
+			{
+				MainLoop.runInMainThread(function():Void
+				{
+					if (onError != null)
+						onError(Std.string(e));
+				});
+			}
+		});
+	}
+
 	public function releaseMedia():Void
 	{
+		_closing = true;
+
 		#if lime_openal
 		syncStartTime = -1;
 		_syncStartPts = -1;
 		#end
+
+		if (mediaPlayer != null)
+		{
+			detachEvents();
+			LibVLC.audio_set_callbacks(mediaPlayer.raw, untyped NULL, untyped NULL, untyped NULL, untyped NULL, untyped NULL, untyped NULL);
+			LibVLC.audio_set_volume_callback(mediaPlayer.raw, untyped NULL);
+			LibVLC.audio_set_format_callbacks(mediaPlayer.raw, untyped NULL, untyped NULL);
+		}
 
 		stop();
 
@@ -485,6 +547,9 @@ class Audio extends openfl.events.EventDispatcher
 
 		alMutex.release();
 		#end
+
+		if (!_disposed)
+			_closing = false;
 	}
 
 	/**
@@ -751,6 +816,9 @@ class Audio extends openfl.events.EventDispatcher
 	/** Frees the memory that is used to store the Audio object. */
 	public function dispose():Void
 	{
+		_disposed = true;
+		_closing = true;
+
 		if (Application.current != null)
 			Application.current.onExit.remove(onExit);
 
@@ -761,6 +829,11 @@ class Audio extends openfl.events.EventDispatcher
 
 		if (mediaPlayer != null)
 		{
+			detachEvents();
+			LibVLC.audio_set_callbacks(mediaPlayer.raw, untyped NULL, untyped NULL, untyped NULL, untyped NULL, untyped NULL, untyped NULL);
+			LibVLC.audio_set_volume_callback(mediaPlayer.raw, untyped NULL);
+			LibVLC.audio_set_format_callbacks(mediaPlayer.raw, untyped NULL, untyped NULL);
+			stop();
 			LibVLC.media_player_release(mediaPlayer.raw);
 			mediaPlayer = null;
 		}
@@ -1142,6 +1215,9 @@ class Audio extends openfl.events.EventDispatcher
 	private function audioPlay(samples:RawPointer<UInt8>, count:UInt32, pts:Int64):Void
 	{
 		#if lime_openal
+		if (_closing)
+			return;
+
 		if (alSource != null && alBufferPool != null)
 		{
 			if (syncStartTime != -1)
@@ -1152,8 +1228,13 @@ class Audio extends openfl.events.EventDispatcher
 				final targetTime:Float = syncStartTime + (cast(pts - _syncStartPts, Float) / 1000.0);
 				final currentTime:Float = System.getTimerNano();
 
-				if (targetTime > currentTime + 5)
-					Sys.sleep((targetTime - currentTime) / 1000.0);
+				if (!_closing && targetTime > currentTime + 5)
+				{
+					var sleepMs:Float = targetTime - currentTime;
+					if (sleepMs > 100)
+						sleepMs = 100;
+					Sys.sleep(sleepMs / 1000.0);
+				}
 			}
 
 			alMutex.acquire();
@@ -1548,6 +1629,8 @@ class Audio extends openfl.events.EventDispatcher
 	@:unreflective
 	private function setupEvents():Void
 	{
+		_attachedEventTypes = [];
+
 		if (mediaPlayer != null)
 		{
 			final eventManager:Pointer<LibVLC_Event_Manager_T> = Pointer.fromRaw(LibVLC.media_player_event_manager(mediaPlayer.raw));
@@ -1583,5 +1666,29 @@ class Audio extends openfl.events.EventDispatcher
 	{
 		if (LibVLC.event_attach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this')) != 0)
 			trace('Failed to attach event (${LibVLC.event_type_name(type)})');
+		else
+			_attachedEventTypes.push(type);
+	}
+
+	@:noCompletion
+	@:noDebug
+	@:unreflective
+	private function detachEvents():Void
+	{
+		if (mediaPlayer == null || _attachedEventTypes == null || _attachedEventTypes.length == 0)
+			return;
+
+		final eventManager:Pointer<LibVLC_Event_Manager_T> = Pointer.fromRaw(LibVLC.media_player_event_manager(mediaPlayer.raw));
+
+		if (eventManager == null)
+		{
+			_attachedEventTypes = [];
+			return;
+		}
+
+		for (type in _attachedEventTypes)
+			LibVLC.event_detach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this'));
+
+		_attachedEventTypes = [];
 	}
 }

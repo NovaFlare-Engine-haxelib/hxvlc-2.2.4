@@ -170,6 +170,71 @@ class AudioGroup
 		}
 	}
 
+	/**
+	 * Adds a new Audio instance to the group or reloads an existing one asynchronously.
+	 * 
+	 * @param location The path or URL of the audio file.
+	 * @param options Additional options for loading.
+	 * @param id The ID (1-based index) of the track. If the group has fewer members than this ID, a new track is added. Otherwise, the existing track at (ID - 1) is reloaded.
+	 * @param onComplete A callback that is called after the operation is complete with the success status.
+	 */
+	public function addTrackAsync(location:String, ?options:Array<String>, id:Int = 9999, ?onComplete:Bool->Void):Void
+	{
+		if (id <= 0)
+		{
+			if (onComplete != null)
+				onComplete(false);
+
+			return;
+		}
+
+		if (members.length < id)
+		{
+			final audio:Audio = new Audio();
+
+			audio.loadAsync(location, options, function():Void
+			{
+				add(audio);
+
+				if (onComplete != null)
+					onComplete(true);
+			}, function(error:String):Void
+			{
+				audio.dispose();
+
+				if (onComplete != null)
+					onComplete(false);
+			});
+		}
+		else
+		{
+			final member:Audio = members[id - 1];
+
+			if (member != null)
+			{
+				member.releaseMedia();
+
+				member.loadAsync(location, options, function():Void
+				{
+					if (members.contains(member))
+						member.volume = _volume * member.groupVolume;
+
+					if (onComplete != null)
+						onComplete(true);
+				}, function(error:String):Void
+				{
+					if (onComplete != null)
+						onComplete(false);
+				});
+			}
+			else
+			{
+				if (onComplete != null)
+					onComplete(false);
+			}
+		}
+	}
+
 	public function releaseMedia(id:Int):Void
 	{
 		if (id <= 0 || id > members.length)

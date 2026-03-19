@@ -423,6 +423,15 @@ class Video extends openfl.display.Bitmap
 	private var mediaPlayer:Null<Pointer<LibVLC_Media_Player_T>>;
 
 	@:noCompletion
+	private var _attachedEventTypes:Array<Int> = [];
+
+	@:noCompletion
+	private var _closing:Bool = false;
+
+	@:noCompletion
+	private var _disposed:Bool = false;
+
+	@:noCompletion
 	private var textureWidth:UInt32 = 0;
 
 	@:noCompletion
@@ -844,8 +853,16 @@ class Video extends openfl.display.Bitmap
 	/** Frees the memory that is used to store the Video object. */
 	public function dispose():Void
 	{
+		_disposed = true;
+		_closing = true;
+
 		if (mediaPlayer != null)
 		{
+			detachEvents();
+			LibVLC.audio_set_callbacks(mediaPlayer.raw, untyped NULL, untyped NULL, untyped NULL, untyped NULL, untyped NULL, untyped NULL);
+			LibVLC.audio_set_volume_callback(mediaPlayer.raw, untyped NULL);
+			LibVLC.audio_set_format_callbacks(mediaPlayer.raw, untyped NULL, untyped NULL);
+			LibVLC.media_player_stop(mediaPlayer.raw);
 			LibVLC.media_player_release(mediaPlayer.raw);
 			mediaPlayer = null;
 		}
@@ -1472,6 +1489,9 @@ class Video extends openfl.display.Bitmap
 	private function audioPlay(samples:RawPointer<UInt8>, count:UInt32, pts:Int64):Void
 	{
 		#if lime_openal
+		if (_closing)
+			return;
+
 		if (alSource != null && alBufferPool != null)
 		{
 			alMutex.acquire();
@@ -1863,6 +1883,8 @@ class Video extends openfl.display.Bitmap
 	@:unreflective
 	private function setupEvents():Void
 	{
+		_attachedEventTypes = [];
+
 		if (mediaPlayer != null)
 		{
 			final eventManager:Pointer<LibVLC_Event_Manager_T> = Pointer.fromRaw(LibVLC.media_player_event_manager(mediaPlayer.raw));
@@ -1898,6 +1920,30 @@ class Video extends openfl.display.Bitmap
 	{
 		if (LibVLC.event_attach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this')) != 0)
 			trace('Failed to attach event (${LibVLC.event_type_name(type)})');
+		else
+			_attachedEventTypes.push(type);
+	}
+
+	@:noCompletion
+	@:noDebug
+	@:unreflective
+	private function detachEvents():Void
+	{
+		if (mediaPlayer == null || _attachedEventTypes == null || _attachedEventTypes.length == 0)
+			return;
+
+		final eventManager:Pointer<LibVLC_Event_Manager_T> = Pointer.fromRaw(LibVLC.media_player_event_manager(mediaPlayer.raw));
+
+		if (eventManager == null)
+		{
+			_attachedEventTypes = [];
+			return;
+		}
+
+		for (type in _attachedEventTypes)
+			LibVLC.event_detach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this'));
+
+		_attachedEventTypes = [];
 	}
 
 	/**
