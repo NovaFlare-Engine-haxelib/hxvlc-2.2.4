@@ -92,11 +92,47 @@ class AudioGroup
 	@:noCompletion
 	private var _volume:Single = 1.0;
 
+	@:noCompletion
+	private var _dispatchOpening:Void->Void;
+
+	@:noCompletion
+	private var _dispatchPlaying:Void->Void;
+
+	@:noCompletion
+	private var _dispatchStopped:Void->Void;
+
+	@:noCompletion
+	private var _dispatchPaused:Void->Void;
+
+	@:noCompletion
+	private var _dispatchEndReached:Void->Void;
+
+	@:noCompletion
+	private var _dispatchEncounteredError:String->Void;
+
+	@:noCompletion
+	private var _dispatchTimeChanged:Int64->Void;
+
+	@:noCompletion
+	private var _dispatchPositionChanged:Single->Void;
+
+	@:noCompletion
+	private var _dispatchLengthChanged:Int64->Void;
+
 	/**
 	 * Creates a new AudioGroup.
 	 */
 	public function new()
 	{
+		_dispatchOpening = onOpening.dispatch;
+		_dispatchPlaying = onPlaying.dispatch;
+		_dispatchStopped = onStopped.dispatch;
+		_dispatchPaused = onPaused.dispatch;
+		_dispatchEndReached = onEndReached.dispatch;
+		_dispatchEncounteredError = onEncounteredError.dispatch;
+		_dispatchTimeChanged = onTimeChanged.dispatch;
+		_dispatchPositionChanged = onPositionChanged.dispatch;
+		_dispatchLengthChanged = onLengthChanged.dispatch;
 	}
 
 	/**
@@ -282,18 +318,30 @@ class AudioGroup
 	 */
 	public function stop():Void
 	{
+		if (!autoDestroy)
+		{
+			for (audio in members)
+			{
+				audio.syncStartTime = -1;
+				audio.stop();
+			}
+
+			return;
+		}
+
 		for (audio in members)
 		{
 			audio.syncStartTime = -1;
 			audio.stop();
-			if (autoDestroy) audio.dispose();
 		}
 
-		if (autoDestroy) {
-			members = [];
+		detachFirstMemberListeners();
+		_firstMember = null;
 
-			updateFirstMemberListeners();
-		}
+		for (audio in members)
+			audio.dispose();
+
+		members.resize(0);
 	}
 
 	/**
@@ -312,12 +360,13 @@ class AudioGroup
 	 */
 	public function dispose():Void
 	{
+		detachFirstMemberListeners();
+		_firstMember = null;
+
 		for (audio in members)
 			audio.dispose();
 
-		members = [];
-
-		updateFirstMemberListeners();
+		members.resize(0);
 	}
 
 	@:noCompletion
@@ -409,32 +458,44 @@ class AudioGroup
 	@:noCompletion
 	private function updateFirstMemberListeners():Void
 	{
-		if (_firstMember != null)
-		{
-			_firstMember.onOpening.remove(onOpening.dispatch);
-			_firstMember.onPlaying.remove(onPlaying.dispatch);
-			_firstMember.onStopped.remove(onStopped.dispatch);
-			_firstMember.onPaused.remove(onPaused.dispatch);
-			_firstMember.onEndReached.remove(onEndReached.dispatch);
-			_firstMember.onEncounteredError.remove(onEncounteredError.dispatch);
-			_firstMember.onTimeChanged.remove(onTimeChanged.dispatch);
-			_firstMember.onPositionChanged.remove(onPositionChanged.dispatch);
-			_firstMember.onLengthChanged.remove(onLengthChanged.dispatch);
-		}
+		detachFirstMemberListeners();
 
 		_firstMember = members.length > 0 ? members[0] : null;
 
-		if (_firstMember != null)
-		{
-			_firstMember.onOpening.add(onOpening.dispatch);
-			_firstMember.onPlaying.add(onPlaying.dispatch);
-			_firstMember.onStopped.add(onStopped.dispatch);
-			_firstMember.onPaused.add(onPaused.dispatch);
-			_firstMember.onEndReached.add(onEndReached.dispatch);
-			_firstMember.onEncounteredError.add(onEncounteredError.dispatch);
-			_firstMember.onTimeChanged.add(onTimeChanged.dispatch);
-			_firstMember.onPositionChanged.add(onPositionChanged.dispatch);
-			_firstMember.onLengthChanged.add(onLengthChanged.dispatch);
-		}
+		attachFirstMemberListeners();
+	}
+
+	@:noCompletion
+	private function detachFirstMemberListeners():Void
+	{
+		if (_firstMember == null)
+			return;
+
+		_firstMember.onOpening.remove(_dispatchOpening);
+		_firstMember.onPlaying.remove(_dispatchPlaying);
+		_firstMember.onStopped.remove(_dispatchStopped);
+		_firstMember.onPaused.remove(_dispatchPaused);
+		_firstMember.onEndReached.remove(_dispatchEndReached);
+		_firstMember.onEncounteredError.remove(_dispatchEncounteredError);
+		_firstMember.onTimeChanged.remove(_dispatchTimeChanged);
+		_firstMember.onPositionChanged.remove(_dispatchPositionChanged);
+		_firstMember.onLengthChanged.remove(_dispatchLengthChanged);
+	}
+
+	@:noCompletion
+	private function attachFirstMemberListeners():Void
+	{
+		if (_firstMember == null)
+			return;
+
+		_firstMember.onOpening.add(_dispatchOpening);
+		_firstMember.onPlaying.add(_dispatchPlaying);
+		_firstMember.onStopped.add(_dispatchStopped);
+		_firstMember.onPaused.add(_dispatchPaused);
+		_firstMember.onEndReached.add(_dispatchEndReached);
+		_firstMember.onEncounteredError.add(_dispatchEncounteredError);
+		_firstMember.onTimeChanged.add(_dispatchTimeChanged);
+		_firstMember.onPositionChanged.add(_dispatchPositionChanged);
+		_firstMember.onLengthChanged.add(_dispatchLengthChanged);
 	}
 }
