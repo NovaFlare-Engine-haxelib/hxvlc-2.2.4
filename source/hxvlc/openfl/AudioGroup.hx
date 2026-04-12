@@ -196,11 +196,12 @@ class AudioGroup
 		}
 		else
 		{
-			members[id - 1].releaseMedia();
-			final success:Bool = members[id - 1].load(location, options);
+			final member:Audio = members[id - 1];
+			member.stop();
+			final success:Bool = member.load(location, options);
 
 			if (success)
-				members[id - 1].volume = _volume * members[id - 1].groupVolume;
+				member.volume = _volume * member.groupVolume;
 
 			return success;
 		}
@@ -213,15 +214,16 @@ class AudioGroup
 	 * @param options Additional options for loading.
 	 * @param id The ID (1-based index) of the track. If the group has fewer members than this ID, a new track is added. Otherwise, the existing track at (ID - 1) is reloaded.
 	 * @param onComplete A callback that is called after the operation is complete with the success status.
+	 * @return `true` if the async operation was started, `false` otherwise.
 	 */
-	public function addTrackAsync(location:String, ?options:Array<String>, id:Int = 9999, ?onComplete:Bool->Void):Void
+	public function addTrackAsync(location:String, ?options:Array<String>, id:Int = 9999, ?onComplete:Bool->Void):Bool
 	{
 		if (id <= 0)
 		{
 			if (onComplete != null)
 				onComplete(false);
 
-			return;
+			return false;
 		}
 
 		if (members.length < id)
@@ -241,6 +243,8 @@ class AudioGroup
 				if (onComplete != null)
 					onComplete(false);
 			});
+
+			return true;
 		}
 		else
 		{
@@ -248,7 +252,7 @@ class AudioGroup
 
 			if (member != null)
 			{
-				member.releaseMedia();
+				member.stop();
 
 				member.loadAsync(location, options, function():Void
 				{
@@ -262,11 +266,15 @@ class AudioGroup
 					if (onComplete != null)
 						onComplete(false);
 				});
+
+				return true;
 			}
 			else
 			{
 				if (onComplete != null)
 					onComplete(false);
+
+				return false;
 			}
 		}
 	}
@@ -286,7 +294,7 @@ class AudioGroup
 	 */
 	public function play(delay:Int = 50):Void
 	{
-		final syncTime:Float = System.getTimerNano() + delay;
+		final syncTime:Float = System.getTimer() + delay;
 
 		for (audio in members)
 		{

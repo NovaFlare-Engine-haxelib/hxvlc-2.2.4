@@ -186,6 +186,9 @@ class Audio extends openfl.events.EventDispatcher
 	@:noCompletion
 	private static final MAX_AUDIO_BUFFER_COUNT:Int = DefineMacro.getInt('HXVLC_MAX_AUDIO_BUFFER_COUNT', 255);
 
+	@:noCompletion
+	private static final AUDIO_PREBUFFER_COUNT:Int = DefineMacro.getInt('HXVLC_AUDIO_PREBUFFER_COUNT', 3);
+
 	/** Synchronization start time in milliseconds. If -1, synchronization is disabled. */
 	public var syncStartTime:Float = -1;
 
@@ -1226,7 +1229,7 @@ class Audio extends openfl.events.EventDispatcher
 					_syncStartPts = pts;
 
 				final targetTime:Float = syncStartTime + (cast(pts - _syncStartPts, Float) / 1000.0);
-				final currentTime:Float = System.getTimerNano();
+				final currentTime:Float = System.getTimer();
 
 				if (!_closing && targetTime > currentTime + 5)
 				{
@@ -1238,8 +1241,7 @@ class Audio extends openfl.events.EventDispatcher
 			}
 
 			alMutex.acquire();
-
-			if (alSource == null || alBufferPool == null)
+			if (_closing || alSource == null || alBufferPool == null)
 			{
 				alMutex.release();
 				return;
@@ -1261,14 +1263,21 @@ class Audio extends openfl.events.EventDispatcher
 
 			alSamples.setUnmanagedData(cast samples, count);
 
+			try
+			{
+				AL.bufferData(alBuffer, alFormat, UInt8Array.fromBytes(Bytes.ofData(alSamples)), alSamples.length * alFrameSize, alSampleRate);
+				AL.sourceQueueBuffer(alSource, alBuffer);
+
+				if (!_closing && AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.PLAYING)
+				{
+					final queued:Int = AL.getSourcei(alSource, AL.BUFFERS_QUEUED);
+					if (queued >= AUDIO_PREBUFFER_COUNT)
+						AL.sourcePlay(alSource);
+				}
+			}
+			catch (e:Dynamic) {}
+
 			alMutex.release();
-
-			AL.bufferData(alBuffer, alFormat, UInt8Array.fromBytes(Bytes.ofData(alSamples)), alSamples.length * alFrameSize, alSampleRate);
-
-			AL.sourceQueueBuffer(alSource, alBuffer);
-
-			if (AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.PLAYING)
-				AL.sourcePlay(alSource);
 		}
 		#end
 	}
@@ -1322,8 +1331,16 @@ class Audio extends openfl.events.EventDispatcher
 		{
 			alMutex.acquire();
 
+			_syncStartPts = -1;
+
 			if (alSource != null && AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.STOPPED)
 				AL.sourceStop(alSource);
+
+			if (alSource != null && alBufferPool != null)
+			{
+				for (alBuffer in AL.sourceUnqueueBuffers(alSource, AL.getSourcei(alSource, AL.BUFFERS_QUEUED)))
+					alBufferPool.push(alBuffer);
+			}
 
 			alMutex.release();
 		}
