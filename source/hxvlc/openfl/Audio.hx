@@ -187,13 +187,19 @@ class Audio extends openfl.events.EventDispatcher
 	private static final MAX_AUDIO_BUFFER_COUNT:Int = DefineMacro.getInt('HXVLC_MAX_AUDIO_BUFFER_COUNT', 255);
 
 	@:noCompletion
-	private static final AUDIO_PREBUFFER_COUNT:Int = DefineMacro.getInt('HXVLC_AUDIO_PREBUFFER_COUNT', 3);
+	private static final MIN_START_QUEUED_BUFFERS:Int = DefineMacro.getInt('HXVLC_MIN_START_QUEUED_BUFFERS', 3);
+
+	@:noCompletion
+	private static final MAX_START_WAIT_MS:Int = DefineMacro.getInt('HXVLC_MAX_START_WAIT_MS', 60);
 
 	/** Synchronization start time in milliseconds. If -1, synchronization is disabled. */
 	public var syncStartTime:Float = -1;
 
 	@:noCompletion
 	private var _syncStartPts:Int64 = -1;
+
+	@:noCompletion
+	private var _startRequestedAt:Float = -1;
 	#end
 
 	/**
@@ -699,6 +705,34 @@ class Audio extends openfl.events.EventDispatcher
 	{
 		#if lime_openal
 		_syncStartPts = -1;
+		_startRequestedAt = -1;
+
+		if (alSource != null)
+		{
+			alMutex.acquire();
+
+			try
+			{
+				if (alSource != null)
+				{
+					if (AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.STOPPED)
+						AL.sourceStop(alSource);
+
+					if (alBufferPool != null)
+					{
+						final queued:Int = AL.getSourcei(alSource, AL.BUFFERS_QUEUED);
+						if (queued > 0)
+						{
+							for (alBuffer in AL.sourceUnqueueBuffers(alSource, queued))
+								alBufferPool.push(alBuffer);
+						}
+					}
+				}
+			}
+			catch (e:Dynamic) {}
+
+			alMutex.release();
+		}
 		#end
 
 		if (mediaPlayer != null)
@@ -977,7 +1011,7 @@ class Audio extends openfl.events.EventDispatcher
 
 			if (time != -1)
 			{
-				var currentTimestamp:Float = System.getTimerNano();
+				var currentTimestamp:Float = System.getTimer();
 
 				if (time != _cachedTime)
 				{
@@ -1009,7 +1043,7 @@ class Audio extends openfl.events.EventDispatcher
 			LibVLC.media_player_set_time(mediaPlayer.raw, value);
 
 			_cachedTime = value;
-			_cachedTimestamp = System.getTimerNano();
+			_cachedTimestamp = System.getTimer();
 		}
 
 		return value;
@@ -1231,12 +1265,19 @@ class Audio extends openfl.events.EventDispatcher
 				final targetTime:Float = syncStartTime + (cast(pts - _syncStartPts, Float) / 1000.0);
 				final currentTime:Float = System.getTimer();
 
-				if (!_closing && targetTime > currentTime + 5)
+				if (!_closing && targetTime > currentTime + 2)
 				{
 					var sleepMs:Float = targetTime - currentTime;
 					if (sleepMs > 100)
 						sleepMs = 100;
-					Sys.sleep(sleepMs / 1000.0);
+					while (!_closing && sleepMs > 0)
+					{
+						var stepMs:Float = sleepMs;
+						if (stepMs > 5)
+							stepMs = 5;
+						Sys.sleep(stepMs / 1000.0);
+						sleepMs -= stepMs;
+					}
 				}
 			}
 
@@ -1270,9 +1311,27 @@ class Audio extends openfl.events.EventDispatcher
 
 				if (!_closing && AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.PLAYING)
 				{
-					final queued:Int = AL.getSourcei(alSource, AL.BUFFERS_QUEUED);
-					if (queued >= AUDIO_PREBUFFER_COUNT)
+					final currentTime:Float = System.getTimer();
+					if (_startRequestedAt == -1)
+						_startRequestedAt = currentTime;
+
+					final queuedBuffers:Int = AL.getSourcei(alSource, AL.BUFFERS_QUEUED);
+					final allowStartByTimeout:Bool = _startRequestedAt != -1 && (currentTime - _startRequestedAt) >= MAX_START_WAIT_MS;
+					final allowStartByBuffer:Bool = queuedBuffers >= MIN_START_QUEUED_BUFFERS;
+					final hasSync:Bool = syncStartTime != -1;
+					final timeReached:Bool = !hasSync || currentTime + 1 >= syncStartTime;
+
+					final shouldStart:Bool = queuedBuffers > 0 && timeReached && (hasSync || allowStartByBuffer || allowStartByTimeout);
+
+					if (shouldStart)
+					{
 						AL.sourcePlay(alSource);
+						_startRequestedAt = -1;
+					}
+				}
+				else if (!_closing)
+				{
+					_startRequestedAt = -1;
 				}
 			}
 			catch (e:Dynamic) {}
@@ -1331,19 +1390,31 @@ class Audio extends openfl.events.EventDispatcher
 		{
 			alMutex.acquire();
 
-			_syncStartPts = -1;
-
-			if (alSource != null && AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.STOPPED)
-				AL.sourceStop(alSource);
-
-			if (alSource != null && alBufferPool != null)
+			try
 			{
-				for (alBuffer in AL.sourceUnqueueBuffers(alSource, AL.getSourcei(alSource, AL.BUFFERS_QUEUED)))
-					alBufferPool.push(alBuffer);
+				if (alSource != null)
+				{
+					if (AL.getSourcei(alSource, AL.SOURCE_STATE) != AL.STOPPED)
+						AL.sourceStop(alSource);
+
+					if (alBufferPool != null)
+					{
+						final queued:Int = AL.getSourcei(alSource, AL.BUFFERS_QUEUED);
+						if (queued > 0)
+						{
+							for (alBuffer in AL.sourceUnqueueBuffers(alSource, queued))
+								alBufferPool.push(alBuffer);
+						}
+					}
+				}
 			}
+			catch (e:Dynamic) {}
 
 			alMutex.release();
 		}
+
+		_syncStartPts = -1;
+		_startRequestedAt = -1;
 		#end
 	}
 

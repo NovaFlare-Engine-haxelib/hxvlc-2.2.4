@@ -337,17 +337,14 @@ class AudioGroup
 			return;
 		}
 
-		for (audio in members)
-		{
-			audio.syncStartTime = -1;
-			audio.stop();
-		}
-
 		detachFirstMemberListeners();
 		_firstMember = null;
 
 		for (audio in members)
+		{
+			audio.syncStartTime = -1;
 			audio.dispose();
+		}
 
 		members.resize(0);
 	}
