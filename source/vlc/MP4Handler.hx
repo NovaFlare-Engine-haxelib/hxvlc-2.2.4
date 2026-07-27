@@ -24,6 +24,7 @@ class MP4Handler extends Video
 	private var pauseMusic:Bool;
 	private var shouldRepeat:Bool = false;
 	private var resumeOnFocus:Bool = false;
+	private var finished:Bool = false;
 
 	public function new(width:Float = 320, height:Float = 240, autoScale:Bool = true)
 	{
@@ -151,6 +152,11 @@ class MP4Handler extends Video
 
 	public function finishVideo()
 	{
+		if (finished)
+			return;
+
+		finished = true;
+
 		if (FlxG.sound.music != null && pauseMusic)
 			FlxG.sound.music.resume();
 
@@ -225,6 +231,8 @@ class MP4Handler extends Video
 	/** Frees the memory that is used to store the Video object. */
 	public override function dispose():Void
 	{
+		FlxG.stage.removeEventListener(Event.ENTER_FRAME, update);
+
 		if (FlxG.signals.focusGained.has(onFocusGained))
 			FlxG.signals.focusGained.remove(onFocusGained);
 
