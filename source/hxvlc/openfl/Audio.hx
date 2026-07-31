@@ -184,10 +184,7 @@ class Audio extends openfl.events.EventDispatcher
 	#if lime_openal
 	/** The number of buffers used for the buffer pool. */
 	@:noCompletion
-	// A streaming source only needs a short pool ahead of the three-buffer start
-	// threshold. The old 255-entry pool also made every Array.shift() in the
-	// callback move hundreds of GC-tracked references.
-	private static final MAX_AUDIO_BUFFER_COUNT:Int = DefineMacro.getInt('HXVLC_MAX_AUDIO_BUFFER_COUNT', 16);
+	private static final MAX_AUDIO_BUFFER_COUNT:Int = DefineMacro.getInt('HXVLC_MAX_AUDIO_BUFFER_COUNT', 255);
 
 	@:noCompletion
 	private static final MIN_START_QUEUED_BUFFERS:Int = DefineMacro.getInt('HXVLC_MIN_START_QUEUED_BUFFERS', 3);
@@ -345,14 +342,6 @@ class Audio extends openfl.events.EventDispatcher
 	private var _disposed:Bool = false;
 
 	@:noCompletion
-	private var _novaNativeCallbackPinned:Bool = false;
-
-	// LibVLC matches listeners by opaque pointer identity. Keep the exact
-	// pinned address used at attach time for every callback and detach call.
-	@:noCompletion
-	private var _novaNativeCallbackContext:RawPointer<cpp.Void> = untyped NULL;
-
-	@:noCompletion
 	private var _cachedTime:Int64 = -1;
 
 	@:noCompletion
@@ -400,38 +389,6 @@ class Audio extends openfl.events.EventDispatcher
 			Application.current.onExit.add(onExit);
 	}
 
-	@:noCompletion
-	private function retainNativeCallbackPin():RawPointer<cpp.Void>
-	{
-		if (_novaNativeCallbackPinned)
-			return _novaNativeCallbackContext;
-
-		#if hxcpp_zgc
-		_novaNativeCallbackContext = untyped __cpp__('::hx::gc::Runtime::instance().retainNativeCallback(this)');
-		if (_novaNativeCallbackContext == null)
-			untyped __cpp__('throw std::bad_alloc()');
-		#else
-		_novaNativeCallbackContext = untyped __cpp__('this');
-		#end
-
-		_novaNativeCallbackPinned = true;
-		return _novaNativeCallbackContext;
-	}
-
-	@:noCompletion
-	private function releaseNativeCallbackPin():Void
-	{
-		if (!_novaNativeCallbackPinned)
-			return;
-
-		final callbackContext:RawPointer<cpp.Void> = _novaNativeCallbackContext;
-		_novaNativeCallbackPinned = false;
-		_novaNativeCallbackContext = untyped NULL;
-		#if hxcpp_zgc
-		untyped __cpp__('::hx::gc::Runtime::instance().releaseNativeCallback({0})', callbackContext);
-		#end
-	}
-
 	/**
 	 * Loads media from the specified location.
 	 * 
@@ -463,13 +420,12 @@ class Audio extends openfl.events.EventDispatcher
 			}
 			else if ((location is Bytes))
 			{
-				final callbackContext:RawPointer<cpp.Void> = retainNativeCallbackPin();
 				mediaMutex.acquire();
 
 				mediaInput = new BytesInput(cast(location, Bytes));
 
 				mediaItem = Pointer.fromRaw(LibVLC.media_new_callbacks(Handle.instance.raw, untyped __cpp__('media_open'), untyped __cpp__('media_read'),
-					untyped __cpp__('media_seek'), untyped NULL, callbackContext));
+					untyped __cpp__('media_seek'), untyped NULL, untyped __cpp__('this')));
 
 				mediaMutex.release();
 			}
@@ -603,8 +559,6 @@ class Audio extends openfl.events.EventDispatcher
 
 		if (!_disposed)
 			_closing = false;
-
-		releaseNativeCallbackPin();
 	}
 
 	/**
@@ -899,9 +853,6 @@ class Audio extends openfl.events.EventDispatcher
 	/** Frees the memory that is used to store the Audio object. */
 	public function dispose():Void
 	{
-		if (_disposed)
-			return;
-
 		_disposed = true;
 		_closing = true;
 
@@ -957,8 +908,6 @@ class Audio extends openfl.events.EventDispatcher
 
 		alMutex.release();
 		#end
-
-		releaseNativeCallbackPin();
 	}
 
 	@:noCompletion
@@ -1342,9 +1291,7 @@ class Audio extends openfl.events.EventDispatcher
 			for (alBuffer in AL.sourceUnqueueBuffers(alSource, AL.getSourcei(alSource, AL.BUFFERS_PROCESSED)))
 				alBufferPool.push(alBuffer);
 
-			// Processed buffer identity/order is irrelevant in the free pool.
-			// pop() is O(1), while shift() applied a GC barrier to every entry.
-			final alBuffer:Null<ALBuffer> = alBufferPool.pop();
+			final alBuffer:Null<ALBuffer> = alBufferPool.shift();
 
 			if (alBuffer == null)
 			{
@@ -1691,7 +1638,7 @@ class Audio extends openfl.events.EventDispatcher
 	@:unreflective
 	private inline function isValid():Bool
 	{
-		return !_closing && !_disposed && mediaPlayer != null;
+		return mediaPlayer != null;
 	}
 
 	@:noCompletion
@@ -1751,8 +1698,6 @@ class Audio extends openfl.events.EventDispatcher
 		if (mediaPlayer == null)
 			return;
 
-		final callbackContext:RawPointer<cpp.Void> = retainNativeCallbackPin();
-
 		#if lime_openal
 		if (alSource == null)
 			alSource = AL.createSource();
@@ -1762,7 +1707,7 @@ class Audio extends openfl.events.EventDispatcher
 		#end
 
 		LibVLC.audio_set_callbacks(mediaPlayer.raw, untyped __cpp__('audio_play'), untyped __cpp__('audio_pause'), untyped __cpp__('audio_resume'),
-			untyped __cpp__('audio_flush'), untyped NULL, callbackContext);
+			untyped __cpp__('audio_flush'), untyped NULL, untyped __cpp__('this'));
 		LibVLC.audio_set_volume_callback(mediaPlayer.raw, untyped __cpp__('audio_set_volume'));
 		LibVLC.audio_set_format_callbacks(mediaPlayer.raw, untyped __cpp__('audio_setup'), untyped NULL);
 	}
@@ -1776,8 +1721,6 @@ class Audio extends openfl.events.EventDispatcher
 
 		if (mediaPlayer != null)
 		{
-			retainNativeCallbackPin();
-
 			final eventManager:Pointer<LibVLC_Event_Manager_T> = Pointer.fromRaw(LibVLC.media_player_event_manager(mediaPlayer.raw));
 
 			if (eventManager != null)
@@ -1809,7 +1752,7 @@ class Audio extends openfl.events.EventDispatcher
 	@:unreflective
 	private function addEvent(eventManager:Pointer<LibVLC_Event_Manager_T>, type:Int):Void
 	{
-		if (LibVLC.event_attach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), _novaNativeCallbackContext) != 0)
+		if (LibVLC.event_attach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this')) != 0)
 			trace('Failed to attach event (${LibVLC.event_type_name(type)})');
 		else
 			_attachedEventTypes.push(type);
@@ -1831,12 +1774,9 @@ class Audio extends openfl.events.EventDispatcher
 			return;
 		}
 
-		final attachedEventTypes:Array<Int> = _attachedEventTypes;
-		// libvlc_event_detach aborts when the listener is already absent. Publish
-		// the empty state first so re-entrant teardown cannot detach it twice.
-		_attachedEventTypes = [];
+		for (type in _attachedEventTypes)
+			LibVLC.event_detach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this'));
 
-		for (type in attachedEventTypes)
-			LibVLC.event_detach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), _novaNativeCallbackContext);
+		_attachedEventTypes = [];
 	}
 }
