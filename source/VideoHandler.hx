@@ -108,6 +108,12 @@ class VideoHandler extends Video
 
 	// Path/asset resolution ported from FlxInternalVideo.load
 	// repeat同等于loop
+	public function play(path:String, ?repeat:Bool = false, ?pauseMusic:Bool = false):Void
+	{
+		playVideo(path, repeat, pauseMusic);
+	}
+	
+	@:overload(function(path:String, ?repeat:Bool, ?pauseMusic:Bool):Void {})
 	public function playVideo(path:String, ?repeat:Bool = false, pauseMusic:Bool = false)
 	{
 		this.pauseMusic = pauseMusic;
