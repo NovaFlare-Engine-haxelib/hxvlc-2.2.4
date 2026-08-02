@@ -36,11 +36,9 @@ import sys.io.File;
 #if HXVLC_LOGGING
 @:cppNamespaceCode('static void instance_logging(void *data, int level, const libvlc_log_t *ctx, const char *fmt, va_list args)
 {
-	hx::SetTopOfStack((int *)99, true);
+	hx::NativeAttach nativeAttach;
 
 	Handle_obj::instanceLogging(level, ctx, fmt, args);
-
-	hx::SetTopOfStack((int *)0, true);
 }')
 #end
 class Handle

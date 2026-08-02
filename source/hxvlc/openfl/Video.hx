@@ -54,11 +54,9 @@ static int media_open(void *opaque, void **datap, uint64_t *sizep)
 	{
 		(*datap) = opaque;
 
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		int result = reinterpret_cast<Video_obj *>(opaque)->mediaOpen(sizep);
-
-		hx::SetTopOfStack((int *)0, true);
 
 		return result;
 	}
@@ -70,11 +68,9 @@ static ssize_t media_read(void *opaque, unsigned char *buf, size_t len)
 {
 	if (opaque)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		ssize_t bytesToRead = reinterpret_cast<Video_obj *>(opaque)->mediaRead(buf, len);
-
-		hx::SetTopOfStack((int *)0, true);
 
 		return bytesToRead;
 	}
@@ -86,11 +82,9 @@ static int media_seek(void *opaque, uint64_t offset)
 {
 	if (opaque)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		int success = reinterpret_cast<Video_obj *>(opaque)->mediaSeek(offset);
-
-		hx::SetTopOfStack((int *)0, true);
 
 		return success;
 	}
@@ -102,11 +96,9 @@ static void *video_lock(void *opaque, void **planes)
 {
 	if (opaque)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		void *picture = reinterpret_cast<Video_obj *>(opaque)->videoLock(planes);
-
-		hx::SetTopOfStack((int *)0, true);
 
 		return picture;
 	}
@@ -118,11 +110,9 @@ static void video_unlock(void *opaque, void *picture, void *const *planes)
 {
 	if (opaque)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		reinterpret_cast<Video_obj *>(opaque)->videoUnlock(planes);
-
-		hx::SetTopOfStack((int *)0, true);
 	}
 }
 
@@ -130,11 +120,9 @@ static void video_display(void *opaque, void *picture)
 {
 	if (opaque)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		reinterpret_cast<Video_obj *>(opaque)->videoDisplay(picture);
-
-		hx::SetTopOfStack((int *)0, true);
 	}
 }
 
@@ -142,11 +130,9 @@ static unsigned video_format_setup(void **opaque, char *chroma, unsigned *width,
 {
 	if (opaque && (*opaque))
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		int pictureBuffers = reinterpret_cast<Video_obj *>(*opaque)->videoFormatSetup(chroma, width, height, pitches, lines);
-
-		hx::SetTopOfStack((int *)0, true);
 
 		return pictureBuffers;
 	}
@@ -158,11 +144,9 @@ static void audio_play(void *data, const void *samples, unsigned count, int64_t 
 {
 	if (data)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		reinterpret_cast<Video_obj *>(data)->audioPlay((unsigned char *)samples, count, pts);
-
-		hx::SetTopOfStack((int *)0, true);
 	}
 }
 
@@ -170,11 +154,9 @@ static void audio_resume(void *data, int64_t pts)
 {
 	if (data)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		reinterpret_cast<Video_obj *>(data)->audioResume(pts);
-
-		hx::SetTopOfStack((int *)0, true);
 	}
 }
 
@@ -182,11 +164,9 @@ static void audio_pause(void *data, int64_t pts)
 {
 	if (data)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		reinterpret_cast<Video_obj *>(data)->audioPause(pts);
-
-		hx::SetTopOfStack((int *)0, true);
 	}
 }
 
@@ -194,11 +174,9 @@ static void audio_flush(void *data, int64_t pts)
 {
 	if (data)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		reinterpret_cast<Video_obj *>(data)->audioFlush(pts);
-
-		hx::SetTopOfStack((int *)0, true);
 	}
 }
 
@@ -206,11 +184,9 @@ static int audio_setup(void **data, char *format, unsigned *rate, unsigned *chan
 {
 	if (data && *data)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		int result = reinterpret_cast<Video_obj *>(*data)->audioSetup(format, rate, channels);
-
-		hx::SetTopOfStack((int *)0, true);
 
 		return result;
 	}
@@ -222,11 +198,9 @@ static void audio_set_volume(void *data, float volume, bool mute)
 {
 	if (data)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		reinterpret_cast<Video_obj *>(data)->audioSetVolume(volume, mute);
-
-		hx::SetTopOfStack((int *)0, true);
 	}
 }
 
@@ -234,11 +208,9 @@ static void event_manager_callbacks(const libvlc_event_t *p_event, void *p_data)
 {
 	if (p_data)
 	{
-		hx::SetTopOfStack((int *)99, true);
+		hx::NativeAttach nativeAttach;
 
 		reinterpret_cast<Video_obj *>(p_data)->eventManagerCallbacks(p_event);
-
-		hx::SetTopOfStack((int *)0, true);
 	}
 }')
 class Video extends openfl.display.Bitmap
