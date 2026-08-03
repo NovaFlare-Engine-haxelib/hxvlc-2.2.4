@@ -395,6 +395,9 @@ class VideoFix extends openfl.display.Bitmap
 	private final mediaMutex:Mutex = new Mutex();
 
 	@:noCompletion
+	private final lifecycleMutex:Mutex = new Mutex();
+
+	@:noCompletion
 	private final textureMutex:Mutex = new Mutex();
 
 	#if lime_openal
@@ -409,13 +412,18 @@ class VideoFix extends openfl.display.Bitmap
 	private var mediaPlayer:Null<Pointer<LibVLC_Media_Player_T>>;
 
 	@:noCompletion
-	private var _attachedEventTypes:Array<Int> = [];
-
-	@:noCompletion
 	private var _closing:Bool = false;
 
 	@:noCompletion
 	private var _disposed:Bool = false;
+
+	@:noCompletion
+	private var _novaNativeCallbackPinned:Bool = false;
+
+	// LibVLC keeps the opaque pointer until its owning player/media is released.
+	// Keep one stable native identity for that complete native lifetime.
+	@:noCompletion
+	private var _novaNativeCallbackContext:RawPointer<cpp.Void> = untyped NULL;
 
 	@:noCompletion
 	private var textureWidth:UInt32 = 0;
@@ -486,6 +494,38 @@ class VideoFix extends openfl.display.Bitmap
 	}
 
 	@:noCompletion
+	private function retainNativeCallbackPin():RawPointer<cpp.Void>
+	{
+		if (_novaNativeCallbackPinned)
+			return _novaNativeCallbackContext;
+
+		#if hxcpp_zgc
+		_novaNativeCallbackContext = untyped __cpp__('::hx::gc::Runtime::instance().retainNativeCallback(this)');
+		if (_novaNativeCallbackContext == null)
+			untyped __cpp__('throw std::bad_alloc()');
+		#else
+		_novaNativeCallbackContext = untyped __cpp__('this');
+		#end
+
+		_novaNativeCallbackPinned = true;
+		return _novaNativeCallbackContext;
+	}
+
+	@:noCompletion
+	private function releaseNativeCallbackPin():Void
+	{
+		if (!_novaNativeCallbackPinned)
+			return;
+
+		final callbackContext:RawPointer<cpp.Void> = _novaNativeCallbackContext;
+		_novaNativeCallbackPinned = false;
+		_novaNativeCallbackContext = untyped NULL;
+		#if hxcpp_zgc
+		untyped __cpp__('::hx::gc::Runtime::instance().releaseNativeCallback({0})', callbackContext);
+		#end
+	}
+
+	@:noCompletion
 private function onContext3DCreate(e:openfl.events.Event):Void
 {
     if (!useTexture)
@@ -524,6 +564,31 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 	 */
 	public function load(location:hxvlc.util.Location, ?options:Array<String>):Bool
 	{
+		lifecycleMutex.acquire();
+		if (_disposed)
+		{
+			lifecycleMutex.release();
+			return false;
+		}
+
+		var result:Bool;
+		try
+		{
+			result = loadUnlocked(location, options);
+		}
+		catch (e:Dynamic)
+		{
+			lifecycleMutex.release();
+			throw e;
+		}
+
+		lifecycleMutex.release();
+		return result;
+	}
+
+	@:noCompletion
+	private function loadUnlocked(location:hxvlc.util.Location, ?options:Array<String>):Bool
+	{
 		if (Handle.instance == null)
 			return false;
 
@@ -546,12 +611,13 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 			}
 			else if ((location is Bytes))
 			{
+				final callbackContext:RawPointer<cpp.Void> = retainNativeCallbackPin();
 				mediaMutex.acquire();
 
 				mediaInput = new BytesInput(cast(location, Bytes));
 
 				mediaItem = Pointer.fromRaw(LibVLC.media_new_callbacks(Handle.instance.raw, untyped __cpp__('media_open'), untyped __cpp__('media_read'),
-					untyped __cpp__('media_seek'), untyped NULL, untyped __cpp__('this')));
+					untyped __cpp__('media_seek'), untyped NULL, cast callbackContext));
 
 				mediaMutex.release();
 			}
@@ -918,12 +984,18 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 	/** Frees the memory that is used to store the Video object. */
 	public function dispose():Void
 	{
+		lifecycleMutex.acquire();
+		if (_disposed)
+		{
+			lifecycleMutex.release();
+			return;
+		}
+
 		_disposed = true;
 		_closing = true;
 
 		if (mediaPlayer != null)
 		{
-			detachEvents();
 			LibVLC.audio_set_callbacks(mediaPlayer.raw, untyped NULL, untyped NULL, untyped NULL, untyped NULL, untyped NULL, untyped NULL);
 			LibVLC.audio_set_volume_callback(mediaPlayer.raw, untyped NULL);
 			LibVLC.audio_set_format_callbacks(mediaPlayer.raw, untyped NULL, untyped NULL);
@@ -985,6 +1057,9 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 
 		alMutex.release();
 		#end
+
+		releaseNativeCallbackPin();
+		lifecycleMutex.release();
 	}
 
 	@:noCompletion
@@ -1966,7 +2041,7 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 	@:unreflective
 	private inline function isValid():Bool
 	{
-		return mediaPlayer != null;
+		return !_closing && !_disposed && mediaPlayer != null;
 	}
 
 	@:noCompletion
@@ -2016,8 +2091,10 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 		if (mediaPlayer == null)
 			return;
 
+		final callbackContext:RawPointer<cpp.Void> = retainNativeCallbackPin();
+
 		LibVLC.video_set_callbacks(mediaPlayer.raw, untyped __cpp__('video_lock'), untyped __cpp__('video_unlock'), untyped __cpp__('video_display'),
-			untyped __cpp__('this'));
+			cast callbackContext);
 		LibVLC.video_set_format_callbacks(mediaPlayer.raw, untyped __cpp__('video_format_setup'), untyped NULL);
 	}
 
@@ -2029,6 +2106,8 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 		if (mediaPlayer == null)
 			return;
 
+		final callbackContext:RawPointer<cpp.Void> = retainNativeCallbackPin();
+
 		#if lime_openal
 		if (alSource == null)
 			alSource = AL.createSource();
@@ -2038,7 +2117,7 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 		#end
 
 		LibVLC.audio_set_callbacks(mediaPlayer.raw, untyped __cpp__('audio_play'), untyped __cpp__('audio_pause'), untyped __cpp__('audio_resume'),
-			untyped __cpp__('audio_flush'), untyped NULL, untyped __cpp__('this'));
+			untyped __cpp__('audio_flush'), untyped NULL, cast callbackContext);
 		LibVLC.audio_set_volume_callback(mediaPlayer.raw, untyped __cpp__('audio_set_volume'));
 		LibVLC.audio_set_format_callbacks(mediaPlayer.raw, untyped __cpp__('audio_setup'), untyped NULL);
 	}
@@ -2048,10 +2127,10 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 	@:unreflective
 	private function setupEvents():Void
 	{
-		_attachedEventTypes = [];
-
 		if (mediaPlayer != null)
 		{
+			retainNativeCallbackPin();
+
 			final eventManager:Pointer<LibVLC_Event_Manager_T> = Pointer.fromRaw(LibVLC.media_player_event_manager(mediaPlayer.raw));
 
 			if (eventManager != null)
@@ -2083,32 +2162,8 @@ private function onContext3DCreate(e:openfl.events.Event):Void
 	@:unreflective
 	private function addEvent(eventManager:Pointer<LibVLC_Event_Manager_T>, type:Int):Void
 	{
-		if (LibVLC.event_attach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this')) != 0)
+		if (LibVLC.event_attach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), cast _novaNativeCallbackContext) != 0)
 			trace('Failed to attach event (${LibVLC.event_type_name(type)})');
-		else
-			_attachedEventTypes.push(type);
-	}
-
-	@:noCompletion
-	@:noDebug
-	@:unreflective
-	private function detachEvents():Void
-	{
-		if (mediaPlayer == null || _attachedEventTypes == null || _attachedEventTypes.length == 0)
-			return;
-
-		final eventManager:Pointer<LibVLC_Event_Manager_T> = Pointer.fromRaw(LibVLC.media_player_event_manager(mediaPlayer.raw));
-
-		if (eventManager == null)
-		{
-			_attachedEventTypes = [];
-			return;
-		}
-
-		for (type in _attachedEventTypes)
-			LibVLC.event_detach(eventManager.raw, type, untyped __cpp__('event_manager_callbacks'), untyped __cpp__('this'));
-
-		_attachedEventTypes = [];
 	}
 
 	/**
